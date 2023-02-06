@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 Google LLC..
+# Copyright 2022 Google LLC..
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -172,7 +172,7 @@ class Job:
     self.topic_path = self.pubsub.topic_path(project, schedule_topic)
     # create the topic for scheduling messages if not exist
     try:
-      self.pubsub.create_topic(self.topic_path)
+      self.pubsub.create_topic(name=self.topic_path)
     except exceptions.GoogleAPICallError as e:
       if e.grpc_status_code.value[0] != _ALREADY_EXISTS_CODE:
         raise
@@ -591,13 +591,17 @@ class Job:
     return poll_fn
 
 
-def cleanup_expired_jobs(db=None, project=None, max_expire_days=30):
+def cleanup_expired_jobs(db=None,
+                         project=None,
+                         max_expire_days=30,
+                         max_timeout_days=1):
   """Clean up database entries for expired job statuses.
 
   Args:
     db: Firestore db instance.
     project: GCP project id.
     max_expire_days: Maximum expire days for a job.
+    max_timeout_days: Maximum running days for a job.
   """
   if not db:
     db = firestore.Client(project=project)
@@ -605,6 +609,7 @@ def cleanup_expired_jobs(db=None, project=None, max_expire_days=30):
   jobs_ref = db.collection(Job.JOB_STATUS_COLLECTION)
   now = datetime.datetime.now()
   expired_job_ids = []
+  timeout_job_ids = []
   # Find all expired jobs
   for job_ref in jobs_ref.stream():
     job = job_ref.to_dict()
@@ -612,6 +617,10 @@ def cleanup_expired_jobs(db=None, project=None, max_expire_days=30):
                                             '%Y-%m-%d-%H:%M:%S')
     if (now - start_time).days >= max_expire_days:
       expired_job_ids.append(job_ref.id)
+    elif job['status'] == JobStatus.RUNNING and (
+        now - start_time).days >= max_timeout_days:
+      logging.info('Job timeout: %s', job_ref.id)
+      timeout_job_ids.append(job_ref.id)
 
   logging.info('%d jobs to delete', len(expired_job_ids))
   # For each expired job, first delete all tasks inside the job,
@@ -624,3 +633,8 @@ def cleanup_expired_jobs(db=None, project=None, max_expire_days=30):
       task_ref.reference.delete()
     job_ref.delete()
     logging.info('Deleted expired job status: %s', job_id)
+
+  logging.info('%d jobs timeout', len(timeout_job_ids))
+  for job_id in timeout_job_ids:
+    job_ref = jobs_ref.document(job_id)
+    job_ref.update({'status': JobStatus.FAILED, 'error': 'timeout'})

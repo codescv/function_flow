@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 Google LLC..
+# Copyright 2022 Google LLC..
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -248,7 +248,7 @@ class CloudTaskHelper:
         queue_ref = self.db.document(self.CLOUD_TASK_COLLECTION, queue_id)
         queue_dict = queue_ref.get().to_dict()
         logging.info('queue status: %s', queue_dict)
-        if queue_dict['num_workers'] == queue_dict['finished']:
+        if queue_dict['num_workers'] <= queue_dict['finished']:
           # The queue is finished
           queue_ref.update({
               'status':
