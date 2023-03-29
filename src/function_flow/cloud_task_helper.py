@@ -189,6 +189,19 @@ class CloudTaskHelper:
       })
       logging.info('Created task response: %s', response)
 
+  def cleanup_expired_queues(self, max_expire_days=7):
+    cloud_tasks_ref = self.db.collection(self.CLOUD_TASK_COLLECTION)
+    now = datetime.datetime.now()
+    for task_ref in cloud_tasks_ref.stream():
+        queue_id = task_ref.id
+        task = task_ref.to_dict()
+        start_time = datetime.datetime.strptime(task['start_time'],
+                                                '%Y-%m-%d-%H%M')
+        age = (now - start_time).days  
+        if age >= max_expire_days:
+            logging.info('queue expire: %s %s', queue_id, task)
+            self.delete_queue(queue_id)
+
   def delete_queue(self, queue_id):
     # delete cloud task queue
     # https://googleapis.dev/python/cloudtasks/latest/tasks_v2/services.html
